@@ -211,8 +211,100 @@ glmnet_clinical_confus = confusionMatrix(glmnet_clinical_local_predictions,clini
 #Specificity : 0.5608
 
 #Next######################
-#1. remove bmi and Sex from the minimal clinical model to show effect of pre-fev alone
-#2. run rfe() on these genos to see if there's any that can be saved
-#3. plot the models, just fev, minimal clinical, local, global, geno side by side to show the effects
-#4. Discuss the study design, why ethnicity is not predictive
-#5. Make list of all RF and glmnet methods tried from the very beginning with their brief rational
+#. 0 use % pre.fev b/c it supposedly corrects for stuff
+clinical = read.table("merge.wgs.phenotype.1484_2015_1209_all.txt",sep = "\t", header = T)
+
+lite_c_train = read.table("../phenotype/merge.wgs.phenotype.1484_2015_1116_lite_pc_global_mod-bmicat_ordinal_fix-bmicat-pct_1482.txt",sep = "\t", header = T) %>% mutate(personID = paste("X0", ID, sep = "_")) %>% filter(personID %in% people_80$personID)
+lite_c_test = read.table("../phenotype/merge.wgs.phenotype.1484_2015_1116_lite_pc_global_mod-bmicat_ordinal_fix-bmicat-pct_1482.txt",sep = "\t", header = T) %>% mutate(personID = paste("X0", ID, sep = "_")) %>% filter(personID %in% all_meta_testing$personID)
+
+clinical_predFEV_train = clinical %>% mutate(personID = paste("X0", NWD_ID, sep = "_"), ethnicity = ethnicity.am) %>% filter(personID %in% people_80$personID) %>% mutate(BMI = factor(lite_c_train$bmicat.recode.collapse.fix)) %>% select(personID, Pre.FEV1.perc.pred,age, Sex, BMI,ethnicity,bdrGp)
+clinical_predFEV_test = clinical %>% mutate(personID = paste("X0", NWD_ID, sep = "_"), ethnicity = ethnicity.am) %>%  filter(personID %in% all_meta_testing$personID) %>% mutate(BMI = factor(lite_c_test$bmicat.recode.collapse.fix)) %>% select(personID, Pre.FEV1.perc.pred,age, Sex, BMI,ethnicity,bdrGp)
+
+glmnet_raw_predictors = clinical_predFEV_train %>% select(-c(personID,age,bdrGp))
+glmnet_response = clinical_train$bdrGp
+#cast into dummies
+dummies = dummyVars("~.", data=glmnet_raw_predictors)
+# turn dummies into new df
+dummy_glmnet_train = as.data.frame(predict(dummies,newdata = glmnet_raw_predictors))
+#train
+myControl1 <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+set.seed(666)
+glmnet_clinical_predFEV <- train(dummy_glmnet_train, glmnet_response, method = "glmnet", family = "binomial", trControl = myControl1)
+#test it out of sample
+testy = clinical_predFEV_test %>% select(-c(bdrGp,age,personID))
+# make dummies dummy
+test_dummies = dummyVars("~.", data=testy)
+testy = as.data.frame(predict(test_dummies,newdata = testy))
+#make predictions
+glmnet_clinical_predFEV_predictions = predict(glmnet_clinical_predFEV,testy)
+glmnet_clinical_predFEV_confus = confusionMatrix(glmnet_clinical_predFEV_predictions,clinical_test$bdrGp) 
+#Accuracy : 0.6735, Kappa : 0.347
+#Sensitivity : 0.6781          
+#Specificity : 0.6689
+
+###########################################
+# repeat above for just PRs
+clinical_predFEV_train_pr = clinical %>% mutate(personID = paste("X0", NWD_ID, sep = "_"), ethnicity = ethnicity.am) %>% filter(personID %in% people_80$personID) %>% mutate(BMI = factor(lite_c_train$bmicat.recode.collapse.fix)) %>% filter (ethnicity == "Puerto Rican") %>% select(personID, Pre.FEV1.perc.pred,age, Sex, BMI,bdrGp)
+clinical_predFEV_test_pr = clinical %>% mutate(personID = paste("X0", NWD_ID, sep = "_"), ethnicity = ethnicity.am) %>%  filter(personID %in% all_meta_testing$personID) %>% mutate(BMI = factor(lite_c_test$bmicat.recode.collapse.fix)) %>% filter (ethnicity == "Puerto Rican") %>% select(personID, Pre.FEV1.perc.pred,age, Sex, BMI,bdrGp)
+
+lite_c_train_pr = lite_c_train %>% filter(ethnicity.am == "Puerto Rican")
+lite_c_test_pr = lite_c_test %>% filter(ethnicity.am == "Puerto Rican")
+clinical_predFEV_train_pr$EUR = lite_c_train_pr$EUR
+clinical_predFEV_test_pr$EUR = lite_c_test_pr$EUR
+clinical_predFEV_train_pr$AFR = lite_c_train_pr$AFR
+clinical_predFEV_test_pr$AFR = lite_c_test_pr$AFR
+clinical_predFEV_train_pr$NAM = lite_c_train_pr$NAM
+clinical_predFEV_test_pr$NAM = lite_c_test_pr$NAM
+
+glmnet_raw_predictors = clinical_predFEV_train_pr %>% select(-c(personID,age,bdrGp))
+glmnet_response = clinical_predFEV_train_pr$bdrGp 
+#cast into dummies
+dummies = dummyVars("~.", data=glmnet_raw_predictors)
+# turn dummies into new df
+dummy_glmnet_train = as.data.frame(predict(dummies,newdata = glmnet_raw_predictors))
+#train
+myControl1 <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+set.seed(666)
+glmnet_clinical_predFEV_pr <- train(dummy_glmnet_train, glmnet_response, method = "glmnet", family = "binomial", trControl = myControl1)
+#test it out of sample
+testy = clinical_predFEV_test_pr %>% select(-c(bdrGp,age,personID))
+# make dummies dummy
+test_dummies = dummyVars("~.", data=testy)
+testy = as.data.frame(predict(test_dummies,newdata = testy))
+#make predictions
+glmnet_clinical_predFEV_predictions_pr = predict(glmnet_clinical_predFEV_pr,testy)
+glmnet_clinical_predFEV_confus_pr = confusionMatrix(glmnet_clinical_predFEV_predictions_pr,clinical_predFEV_test_pr$bdrGp) 
+#Accuracy : 0.6907 || w/global same
+#Kappa : 0.3819 || w/global .3822
+#Sensitivity : 0.7292 || w/global .75
+#Specificity : 0.6531 || w/global 0.6327
+## using global ancestry provides a small increase in Sensitivity and Kappa, at the expense of a small decrease in Specifiity
+## all things even, I would NOT use global
+
+################################################# 
+#1. remove pre-fev, leaving BMI and Sex from the minimal clinical model to show effect of pre-fev 
+glmnet_raw_predictors = clinical_predFEV_train %>% select(-c(personID,age,bdrGp, Pre.FEV1.perc.pred))
+glmnet_response = clinical_train$bdrGp
+#cast into dummies
+dummies = dummyVars("~.", data=glmnet_raw_predictors)
+# turn dummies into new df
+dummy_glmnet_train = as.data.frame(predict(dummies,newdata = glmnet_raw_predictors))
+#train
+myControl1 <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+set.seed(666)
+glmnet_clinical_no_FEV <- train(dummy_glmnet_train, glmnet_response, method = "glmnet", family = "binomial", trControl = myControl1)
+#test it out of sample
+testy = clinical_predFEV_test %>% select(-c(bdrGp,age,personID,Pre.FEV1.perc.pred))
+# make dummies dummy
+test_dummies = dummyVars("~.", data=testy)
+testy = as.data.frame(predict(test_dummies,newdata = testy))
+#make predictions
+glmnet_clinical_no_FEV_predictions = predict(glmnet_clinical_no_FEV,testy)
+glmnet_clinical_no_FEV_confus = confusionMatrix(glmnet_clinical_no_FEV_predictions,clinical_test$bdrGp)
+#Accuracy : 0.5204, Kappa : 0.04
+# Sensitivity : 0.5068          
+# Specificity : 0.5338
+##############################################
+
+#2. compare p-value model vs agnostic selection
+# Get the top 100 SNPs for PRs by p-value. Or even just the top 10. Build a model to compare to top-N by agnostic
